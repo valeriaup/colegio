@@ -157,7 +157,7 @@ router.delete('/estudiantes/:id', (req, res) => {
     }
     estudiantes.splice(student, 1);
     
-    res.status(201).json({ success: true, Headers: {apiKey, role}, data: "El estudiante se ha eliminado" });
+    res.status(200).json({ success: true, Headers: {apiKey, role}, data: "El estudiante se ha eliminado" });
 });
 
-module.exports = router;
+module.exports = router; //exporta el router para usarlo en index.js

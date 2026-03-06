@@ -2,9 +2,9 @@ const express = require('express');
 const router = express.Router();
 
 let materias = [
-    { id: 1, nombre: 'Matemáticas', descripcion: 'Álgebra y Geometría', activa: false },
-    { id: 2, nombre: 'Programación', descripcion: 'Node.js y APIs REST', activa: true },
-    { id: 3, nombre: 'Quimica', descripcion: 'Nivel Técnico', activa: true }
+    { id: 1, nombre: 'Matematicas', descripcion: 'Algebra y Geometria', activa: false },
+    { id: 2, nombre: 'Programacion', descripcion: 'Node.js y APIs REST', activa: true },
+    { id: 3, nombre: 'Quimica', descripcion: 'Nivel Tecnico', activa: true }
 ];
 
 // GET: todas las materias
