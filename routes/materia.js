@@ -1,176 +1,117 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../db');
 
-let materias = [
-    { id: 1, nombre: 'Matematicas', descripcion: 'Algebra y Geometria', activa: false },
-    { id: 2, nombre: 'Programacion', descripcion: 'Node.js y APIs REST', activa: true },
-    { id: 3, nombre: 'Quimica', descripcion: 'Nivel Tecnico', activa: true }
-];
+// ── MIDDLEWARES DE AUTENTICACIÓN ──────────────────────
 
-// GET: todas las materias
-router.get('/materias', (req, res) => {
+function authGet(req, res, next) {
     const apiKey = req.headers['password'];
-    if (!apiKey) {
-        return res.status(401).json({
-            success: false,
-            message: 'API key es requerida'
-        });
-    }
-    if (apiKey !== '12345') {
-        return res.status(403).json({
-            success: false,
-            message: 'Error la password no es correcta'
-        });
-    }
+    if (!apiKey) return res.status(401).json({ success: false, message: 'API key es requerida' });
+    if (apiKey !== '12345') return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
+    next();
+}
 
+function authAdmin(req, res, next) {
+    const apiKey = req.headers['password'];
+    const role = req.headers['x-user-role'];
+    if (!apiKey) return res.status(401).json({ success: false, message: 'API key es requerida' });
+    if (apiKey !== '6789') return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
+    if (role !== 'admin') return res.status(403).json({ success: false, message: 'No tienes permisos para realizar esta acción' });
+    next();
+}
+
+// ── GET: todas las materias ───────────────────────────
+router.get('/materias', authGet, (req, res) => {
     const { nombre, descripcion, activa } = req.query;
-    let filtradasMaterias = materias.filter(m => {
-        return ((!nombre || m.nombre.toLocaleLowerCase().includes(nombre.toLocaleLowerCase()))) &&
-               (!descripcion || m.descripcion.toLocaleLowerCase().includes(descripcion.toLocaleLowerCase())) &&
-               (!activa || m.activa.toString() === activa.toLocaleLowerCase());
+
+    let query = 'SELECT * FROM Materias WHERE 1=1';
+    const params = [];
+
+    if (nombre)      { query += ' AND Nombre LIKE ?';      params.push(`%${nombre}%`); }
+    if (descripcion) { query += ' AND Descripcion LIKE ?'; params.push(`%${descripcion}%`); }
+    if (activa !== undefined && activa !== '') {
+        query += ' AND Activa = ?';
+        // acepta tanto "true/false" como "1/0"
+        params.push(activa === 'true' || activa === '1' ? 1 : 0);
+    }
+
+    db.all(query, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, data: rows });
     });
-
-    res.json({ success: true, Headers: { apiKey }, data: filtradasMaterias });
 });
 
-// GET: obtener una materia por ID
-router.get('/materias/:id', (req, res) => {
-    const apiKey = req.headers['password'];
-    if (!apiKey) {
-        return res.status(401).json({
-            success: false,
-            message: 'API key es requerida'
-        });
-    }
-    if (apiKey !== '12345') {
-        return res.status(403).json({
-            success: false,
-            message: 'Error la password no es correcta'
-        });
-    }
-
-    const materia = materias.find(m => m.id === parseInt(req.params.id));
-    if (!materia) {
-        return res.status(404).json({ success: false, message: 'Materia no encontrada' });
-    } else {
-        res.json({ success: true, Headers: { apiKey }, data: materia });
-    }
+// ── GET: materia por ID ───────────────────────────────
+router.get('/materias/:id', authGet, (req, res) => {
+    db.get('SELECT * FROM Materias WHERE MateriaId = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (!row) return res.status(404).json({ success: false, message: 'Materia no encontrada' });
+        res.json({ success: true, data: row });
+    });
 });
 
-// POST: agregar materia
-router.post('/materias', (req, res) => {
-    const apiKey = req.headers['password'];
-    const role = req.headers['x-user-role'];
-   
-    if (!apiKey) {
-        return res.status(401).json({
-            success: false,
-            message: 'API key es requerida'
-        });
-    }
-    if (apiKey !== '6789') {
-        return res.status(403).json({
-            success: false,
-            message: 'Error la password no es correcta'
-        });
-    }
-    if (role !== 'admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'No tienes permisos para realizar esta acción'
-        });
-    }
-
+// ── POST: crear materia ───────────────────────────────
+router.post('/materias', authAdmin, (req, res) => {
     const { nombre, descripcion, activa } = req.body;
-   
-    if (!nombre || !descripcion || activa === undefined) {
-        return res.status(400).json({ success: false, message: 'Faltan datos requeridos' });
+
+    // Validación: campos obligatorios
+    if (!nombre || activa === undefined) {
+        return res.status(400).json({ success: false, message: 'nombre y activa son obligatorios' });
     }
 
-    const newMateria = {
-        id: materias.length + 1,
-        nombre,
-        descripcion,
-        activa
-    };
-   
-    materias.push(newMateria);
-    res.status(201).json({ success: true, Headers: { apiKey, role }, data: newMateria });
+    // Validación: activa debe ser booleano o 0/1
+    const activaVal = activa === true || activa === 1 || activa === 'true' || activa === '1' ? 1 : 0;
+
+    db.run(
+        'INSERT INTO Materias (Nombre, Descripcion, Activa) VALUES (?, ?, ?)',
+        [nombre, descripcion || null, activaVal],
+        function (err) {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.status(201).json({ success: true, data: { id: this.lastID, nombre, descripcion, activa: activaVal } });
+        }
+    );
 });
 
-// PUT: actualizar datos de la materia
-router.put('/materias/:id', (req, res) => {
-    const apiKey = req.headers['password'];
-    const role = req.headers['x-user-role'];
-   
-    if (!apiKey) {
-        return res.status(401).json({
-            success: false,
-            message: 'API key es requerida'
-        });
-    }
-    if (apiKey !== '6789') {
-        return res.status(403).json({
-            success: false,
-            message: 'Error la password no es correcta'
-        });
-    }
-    if (role !== 'admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'No tienes permisos para realizar esta acción'
-        });
-    }
-
-    const id = parseInt(req.params.id);
+// ── PUT: actualizar materia ───────────────────────────
+router.put('/materias/:id', authAdmin, (req, res) => {
     const { nombre, descripcion, activa } = req.body;
-    const materia = materias.find(m => m.id === id);
-   
-    if (!materia) {
-        return res.status(404).json({ success: false, message: 'Materia no encontrada' });
-    }
-   
-    // Actualiza los campos
-    materia.nombre = nombre;
-    materia.descripcion = descripcion;
-    materia.activa = activa;
 
-    res.json({ success: true, Headers: { apiKey, role }, data: materia });
+    // Validación: campos obligatorios
+    if (!nombre || activa === undefined) {
+        return res.status(400).json({ success: false, message: 'nombre y activa son obligatorios' });
+    }
+
+    // Validación: existe la materia
+    db.get('SELECT MateriaId FROM Materias WHERE MateriaId = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (!row) return res.status(404).json({ success: false, message: 'Materia no encontrada' });
+
+        const activaVal = activa === true || activa === 1 || activa === 'true' || activa === '1' ? 1 : 0;
+
+        db.run(
+            'UPDATE Materias SET Nombre = ?, Descripcion = ?, Activa = ? WHERE MateriaId = ?',
+            [nombre, descripcion || null, activaVal, req.params.id],
+            function (err) {
+                if (err) return res.status(500).json({ success: false, message: err.message });
+                res.json({ success: true, data: { id: req.params.id, nombre, descripcion, activa: activaVal } });
+            }
+        );
+    });
 });
 
-// DELETE: eliminar materia por ID
-router.delete('/materias/:id', (req, res) => {
-    const apiKey = req.headers['password'];
-    const role = req.headers['x-user-role'];
-   
-    if (!apiKey) {
-        return res.status(401).json({
-            success: false,
-            message: 'API key es requerida'
-        });
-    }
-    if (apiKey !== '6789') {
-        return res.status(403).json({
-            success: false,
-            message: 'Error la password no es correcta'
-        });
-    }
-    if (role !== 'admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'No tienes permisos para realizar esta acción'
-        });
-    }
+// ── DELETE: eliminar materia ──────────────────────────
+router.delete('/materias/:id', authAdmin, (req, res) => {
 
-    const materiaIndex = materias.findIndex(m => m.id === parseInt(req.params.id));
-   
-    if (materiaIndex === -1) {
-        return res.status(404).json({ success: false, message: 'Materia no encontrada' });
-    }
-   
-    materias.splice(materiaIndex, 1);
-   
-    res.status(201).json({ success: true, Headers: { apiKey, role }, data: "La materia se ha eliminado" });
+    // Validación: existe la materia
+    db.get('SELECT MateriaId FROM Materias WHERE MateriaId = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (!row) return res.status(404).json({ success: false, message: 'Materia no encontrada' });
+
+        db.run('DELETE FROM Materias WHERE MateriaId = ?', [req.params.id], function (err) {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.status(200).json({ success: true, data: 'La materia se ha eliminado' });
+        });
+    });
 });
 
 module.exports = router;
