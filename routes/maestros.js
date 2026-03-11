@@ -1,167 +1,116 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../db');
 
-const maestros = [
-    { id: 1, nombre: 'Carlos', apellido: 'Perez', especialidad: 'Programacion', email: 'carlos@gmail.com', telefono: 8503658743},
-    { id: 2, nombre: 'Melisa', apellido: 'Uribe', especialidad: 'Quimica', email: 'melisadiabla@gmail.com', telefono: 3789321904},
-    { id: 3, nombre: 'Guillermo', apellido: 'Zuluaga', especialidad: 'Matematicas', email: 'guilleremito@gmail.com', telefono: 4363856815},
-    { id: 4, nombre: 'Vicky', apellido: 'Gutierrez', especialidad: 'Investigacion', email: 'doñavicky@gmail.com', telefono: 5678910347}
-];
+// ── MIDDLEWARES DE AUTENTICACIÓN ──────────────────────
 
-//GET: todos los maestros
-router.get('/maestros', (req, res) => {
+function authGet(req, res, next) {
     const apiKey = req.headers['password'];
-    if (!apiKey) {
-        return res.status(401).json({
-        success: false,
-        message: 'API key es requerida'
-    });
+    if (!apiKey) return res.status(401).json({ success: false, message: 'API key es requerida' });
+    if (apiKey !== '12345') return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
+    next();
 }
-    if (apiKey !== '12345') {
-        return res.status(403).json({
-        success: false,
-        message: 'Error la password no es correcta'
-    });
+
+function authAdmin(req, res, next) {
+    const apiKey = req.headers['password'];
+    const role = req.headers['x-user-role'];
+    if (!apiKey) return res.status(401).json({ success: false, message: 'API key es requerida' });
+    if (apiKey !== '6789') return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
+    if (role !== 'admin') return res.status(403).json({ success: false, message: 'No tienes permisos para realizar esta acción' });
+    next();
 }
+
+// ── GET: todos los profesores ─────────────────────────
+router.get('/maestros', authGet, (req, res) => {
     const { nombre, apellido, especialidad, email, telefono } = req.query;
-    let filtradosMaestros = maestros.filter(p => {
-        return((!nombre || p.nombre.toLocaleLowerCase().includes(nombre.toLocaleLowerCase()))) &&
-        (!apellido || p.apellido.toLocaleLowerCase().includes(apellido.toLocaleLowerCase())) &&
-        (!especialidad || p.especialidad.toLocaleLowerCase().includes(especialidad.toLocaleLowerCase())) &&
-        (!email || p.email.toLocaleLowerCase().includes(email.toLocaleLowerCase())) &&
-        (!telefono || p.telefono === Number(telefono))
-    })
-    res.json({ success: true, Headers: {apiKey}, data: filtradosMaestros });
+
+    let query = 'SELECT * FROM Profesores WHERE 1=1';
+    const params = [];
+
+    if (nombre)       { query += ' AND Nombre LIKE ?';       params.push(`%${nombre}%`); }
+    if (apellido)     { query += ' AND Apellido LIKE ?';      params.push(`%${apellido}%`); }
+    if (especialidad) { query += ' AND Especialidad LIKE ?';  params.push(`%${especialidad}%`); }
+    if (email)        { query += ' AND Email LIKE ?';         params.push(`%${email}%`); }
+    if (telefono)     { query += ' AND Telefono LIKE ?';      params.push(`%${telefono}%`); }
+
+    db.all(query, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, data: rows });
+    });
 });
 
-// GET: obtener un estudiante por ID
-router.get('/maestros/:id', (req, res) => {
-    const apiKey = req.headers['password'];
-    if (!apiKey) {
-        return res.status(401).json({
-        success: false,
-        message: 'API key es requerida'
+// ── GET: profesor por ID ──────────────────────────────
+router.get('/maestros/:id', authGet, (req, res) => {
+    db.get('SELECT * FROM Profesores WHERE ProfesorId = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (!row) return res.status(404).json({ success: false, message: 'Maestro no encontrado' });
+        res.json({ success: true, data: row });
     });
-}
-    if (apiKey !== '12345') {
-        return res.status(403).json({
-        success: false,
-        message: 'Error la password no es correcta'
-    });
-}
-    const teacher = maestros.find(u => u.id === parseInt(req.params.id));
-    if (!teacher){
-        return res.status(404).json({ success: false, message: 'Maestro no encontrado' });
-    } else {
-        res.json({ success: true, Headers: {apiKey}, data: teacher });
-    }
 });
 
-//POST: agregar maestro
-router.post('/maestros', (req, res) => {
-    const apiKey = req.headers['password'];
-    const role = req.headers['x-user-role'];
-    if (!apiKey) {
-        return res.status(401).json({
-        success: false,
-        message: 'API key es requerida'
-    });
-}
-    if (apiKey !== '6789') {
-        return res.status(403).json({
-        success: false,
-        message: 'Error la password no es correcta'
-    });
-}
-    if (role !== 'admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'No tienes permisos para realizar esta acción'
-        });
-    }
-    const { nombre, apellido, especialidad, email, telefono} = req.body;
+// ── POST: crear profesor ──────────────────────────────
+router.post('/maestros', authAdmin, (req, res) => {
+    const { nombre, apellido, especialidad, email, telefono } = req.body;
+
+    // Validación: campos obligatorios
     if (!nombre || !apellido || !especialidad || !email || !telefono) {
-        return res.status(400).json({ success: false, message: 'Faltan datos requeridos' });
+        return res.status(400).json({ success: false, message: 'nombre, apellido, especialidad, email y telefono son obligatorios' });
     }
-    const newMaestro = {
-        id: maestros.length + 1,
-        nombre,
-        apellido,
-        especialidad,
-        email,
-        telefono
-    };
-    maestros.push(newMaestro);
-    res.status(201).json({ success: true, Headers: {apiKey, role}, data: newMaestro });
+
+    // Validación: unicidad del email
+    db.get('SELECT ProfesorId FROM Profesores WHERE Email = ?', [email], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (row) return res.status(400).json({ success: false, message: 'El email ya está registrado' });
+
+        db.run(
+            'INSERT INTO Profesores (Nombre, Apellido, Especialidad, Email, Telefono) VALUES (?, ?, ?, ?, ?)',
+            [nombre, apellido, especialidad, email, telefono],
+            function (err) {
+                if (err) return res.status(500).json({ success: false, message: err.message });
+                res.status(201).json({ success: true, data: { id: this.lastID, nombre, apellido, especialidad, email, telefono } });
+            }
+        );
+    });
 });
 
-//PUT: actualizar datos
-router.put('/maestros/:id', (req, res) => {
-    const apiKey = req.headers['password'];
-    const role = req.headers['x-user-role'];
-    if (!apiKey) {
-        return res.status(401).json({
-        success: false,
-        message: 'API key es requerida'
-    });
-}
-    if (apiKey !== '6789') {
-        return res.status(403).json({
-        success: false,
-        message: 'Error la password no es correcta'
-    });
-}
-    if (role !== 'admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'No tienes permisos para realizar esta acción'
-        });
-    }
-    const id = parseInt(req.params.id);
-    const { nombre, apellido, especialidad, email, telefono} = req.body;
-    const maestro = maestros.find(e => e.id === id);
-    if (!maestro) {
-        return res.status(404).json({ success: false, message: 'Maestro no encontrado' });
-    }
-    // Actualiza los campos
-    maestro.nombre = nombre;
-    maestro.apellido = apellido;
-    maestro.especialidad = especialidad;
-    maestro.email = email;
-    maestro.telefono = telefono
+// ── PUT: actualizar profesor ──────────────────────────
+router.put('/maestros/:id', authAdmin, (req, res) => {
+    const { nombre, apellido, especialidad, email, telefono } = req.body;
 
-    res.json({ success: true, Headers: {apiKey, role}, data: maestro });
+    // Validación: campos obligatorios
+    if (!nombre || !apellido || !especialidad || !email || !telefono) {
+        return res.status(400).json({ success: false, message: 'nombre, apellido, especialidad, email y telefono son obligatorios' });
+    }
+
+    // Validación: existe el profesor
+    db.get('SELECT ProfesorId FROM Profesores WHERE ProfesorId = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (!row) return res.status(404).json({ success: false, message: 'Maestro no encontrado' });
+
+        db.run(
+            'UPDATE Profesores SET Nombre = ?, Apellido = ?, Especialidad = ?, Email = ?, Telefono = ? WHERE ProfesorId = ?',
+            [nombre, apellido, especialidad, email, telefono, req.params.id],
+            function (err) {
+                if (err) return res.status(500).json({ success: false, message: err.message });
+                res.json({ success: true, data: { id: req.params.id, nombre, apellido, especialidad, email, telefono } });
+            }
+        );
+    });
 });
 
-//DELETE: eliminar estudiante por ID
-router.delete('/maestros/:id', (req, res) => {
-    const apiKey = req.headers['password'];
-    const role = req.headers['x-user-role'];
-        if (!apiKey) {
-        return res.status(401).json({
-        success: false,
-        message: 'API key es requerida'
-    });
-}
-    if (apiKey !== '6789') {
-        return res.status(403).json({
-        success: false,
-        message: 'Error la password no es correcta'
-    });
-}
-    if (role !== 'admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'No tienes permisos para realizar esta acción'
+// ── DELETE: eliminar profesor ─────────────────────────
+router.delete('/maestros/:id', authAdmin, (req, res) => {
+
+    // Validación: existe el profesor
+    db.get('SELECT ProfesorId FROM Profesores WHERE ProfesorId = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (!row) return res.status(404).json({ success: false, message: 'Maestro no encontrado' });
+
+        db.run('DELETE FROM Profesores WHERE ProfesorId = ?', [req.params.id], function (err) {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.status(200).json({ success: true, data: 'El maestro se ha eliminado' });
         });
-    }
-    const teacher = maestros.findIndex(u => u.id === parseInt(req.params.id));
-    if (teacher === -1) {
-        return res.status(404).json({ success: false, message: 'Maestro no encontrado' });
-    }
-    maestros.splice(teacher, 1);
-    
-    res.status(201).json({ success: true, Headers: {apiKey, role}, data: "El maestro se ha eliminado" });
+    });
 });
 
 module.exports = router;
