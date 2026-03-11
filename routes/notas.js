@@ -1,177 +1,135 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../db');
 
-let notas = [
-    { id: 1, estudianteId: 1, profesorId: 1, materia: 'Matematicas', valor: 4.5 },
-    { id: 2, estudianteId: 2, profesorId: 2, materia: 'Programacion', valor: 3.8 }
-];
-
-// GET: todas las notas
-router.get('/notas', (req, res) => {
+// ── MIDDLEWARES DE AUTENTICACIÓN ──────────────────────
+function authGet(req, res, next) {
     const apiKey = req.headers['password'];
-    if (!apiKey) {
-        return res.status(401).json({
-            success: false,
-            message: 'API key es requerida'
-        });
-    }
-    if (apiKey !== '12345') {
-        return res.status(403).json({
-            success: false,
-            message: 'Error la password no es correcta'
-        });
-    }
-    const { estudianteId, profesorId,  materia, valor } = req.query;
-    let filteredNotas = notas.filter(n => {
-        return ((!estudianteId || n.estudianteId === parseInt(estudianteId))) &&
-            (!profesorId || n.profesorId === parseInt(profesorId)) &&
-            (!materia || n.materia.toLowerCase().includes(materia.toLowerCase())) &&
-            (!valor || n.valor === parseFloat(valor));
+    if (!apiKey) return res.status(401).json({ success: false, message: 'API key es requerida' });
+    if (apiKey !== '12345') return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
+    next();
+}
+
+function authAdmin(req, res, next) {
+    const apiKey = req.headers['password'];
+    const role = req.headers['x-user-role'];
+    if (!apiKey) return res.status(401).json({ success: false, message: 'API key es requerida' });
+    if (apiKey !== '6789') return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
+    if (role !== 'admin') return res.status(403).json({ success: false, message: 'No tienes permisos para realizar esta acción' });
+    next();
+}
+
+// ── GET: todas las notas ──────────────────────────────
+router.get('/notas', authGet, (req, res) => {
+    const { estudianteId, profesorid, materiaId, valor } = req.query;
+
+    let query = 'SELECT * FROM Notas WHERE 1=1';
+    const params = [];
+
+    if (estudianteId) { query += ' AND EstudianteId = ?'; params.push(parseInt(estudianteId)); }
+    if (profesorid)   { query += ' AND ProfesorId = ?';   params.push(parseInt(profesorid)); }
+    if (materiaId)    { query += ' AND MateriaId = ?';    params.push(parseInt(materiaId)); }
+    if (valor)        { query += ' AND Valor = ?';        params.push(parseFloat(valor)); }
+
+    db.all(query, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, data: rows });
     });
-    res.json({ success: true, Headers: { apiKey }, data: filteredNotas });
 });
 
-// GET: obtener nota por ID
-router.get('/notas/:id', (req, res) => {
-    const apiKey = req.headers['password'];
-    if (!apiKey) {
-        return res.status(401).json({
-            success: false,
-            message: 'API key es requerida'
-        });
-    }
-    if (apiKey !== '12345') {
-        return res.status(403).json({
-            success: false,
-            message: 'Error la password no es correcta'
-        });
-    }
-    const nota = notas.find(n => n.id === parseInt(req.params.id));
-    if (!nota) {
-        return res.status(404).json({
-            success: false,
-            message: 'Nota no encontrada'
-        });
-    }
-    res.json({ success: true, Headers: { apiKey }, data: nota });
+// ── GET: nota por ID ──────────────────────────────────
+router.get('/notas/:id', authGet, (req, res) => {
+    db.get('SELECT * FROM Notas WHERE NotaId = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (!row) return res.status(404).json({ success: false, message: 'Nota no encontrada' });
+        res.json({ success: true, data: row });
+    });
 });
 
-// POST: agregar nota
-router.post('/notas', (req, res) => {
-    const apiKey = req.headers['password'];
-    const role = req.headers['x-user-role'];
-    if (!apiKey) {
-        return res.status(401).json({
-            success: false,
-            message: 'API key es requerida'
-        });
-    }
-    if (apiKey !== '6789') {
-        return res.status(403).json({
-            success: false,
-            message: 'Error la password no es correcta'
-        });
-    }
-    if (role !== 'admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'No tienes permisos para realizar esta acción'
-        });
+// ── POST: crear nota ──────────────────────────────────
+router.post('/notas', authAdmin, (req, res) => {
+    const { estudianteId, profesorid, materiaId, valor } = req.body;
+
+    // Validación: campos obligatorios
+    if (!estudianteId || !profesorid || !materiaId || !valor) {
+        return res.status(400).json({ success: false, message: 'estudianteId, profesorid, materiaId y valor son obligatorios' });
     }
 
-    const { estudianteId, profesorId, materia, valor } = req.body;
-    if (!estudianteId || !profesorId || !materia || !valor) {
-        return res.status(400).json({
-            success: false,
-            message: 'Faltan datos requeridos'
-        });
+    // Validación: valor debe ser número entre 0 y 5
+    if (isNaN(valor) || valor <= 0 || valor > 5) {
+        return res.status(400).json({ success: false, message: 'valor debe ser un número entre 0.1 y 5' });
     }
-    const nuevaNota = {
-        id: notas.length + 1,
-        estudianteId,
-        profesorId,
-        materia,
-        valor
-    };
 
-    notas.push(nuevaNota);
-    res.status(201).json({ success: true, Headers: { apiKey, role }, data: nuevaNota });
+    // Validación: el estudiante existe
+    db.get('SELECT EstudianteId FROM Estudiantes WHERE EstudianteId = ?', [estudianteId], (err, est) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (!est) return res.status(404).json({ success: false, message: 'El estudiante no existe' });
+
+        // Validación: el profesor existe
+        db.get('SELECT ProfesorId FROM Profesores WHERE ProfesorId = ?', [profesorid], (err, prof) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            if (!prof) return res.status(404).json({ success: false, message: 'El profesor no existe' });
+
+            // Validación: la materia existe
+            db.get('SELECT MateriaId FROM Materias WHERE MateriaId = ?', [materiaId], (err, mat) => {
+                if (err) return res.status(500).json({ success: false, message: err.message });
+                if (!mat) return res.status(404).json({ success: false, message: 'La materia no existe' });
+
+                db.run(
+                    'INSERT INTO Notas (EstudianteId, ProfesorId, MateriaId, Valor) VALUES (?, ?, ?, ?)',
+                    [estudianteId, profesorid, materiaId, valor],
+                    function (err) {
+                        if (err) return res.status(500).json({ success: false, message: err.message });
+                        res.status(201).json({ success: true, data: { id: this.lastID, estudianteId, profesorid, materiaId, valor } });
+                    }
+                );
+            });
+        });
+    });
 });
 
-// PUT: actualizar nota
-router.put('/notas/:id', (req, res) => {
-    const apiKey = req.headers['password'];
-    const role = req.headers['x-user-role'];
-    if (!apiKey) {
-        return res.status(401).json({
-            success: false,
-            message: 'API key es requerida'
-        });
-    }
-    if (apiKey !== '6789') {
-        return res.status(403).json({
-            success: false,
-            message: 'Error la password no es correcta'
-        });
-    }
-    if (role !== 'admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'No tienes permisos para realizar esta acción'
-        });
-    }
-    const id = parseInt(req.params.id);
-    const nota = notas.find(n => n.id === id);
-    if (!nota) {
-        return res.status(404).json({
-            success: false,
-            message: 'Nota no encontrada'
-        });
-    }
-    const { estudianteId, profesorId, materia, valor } = req.body;
+// ── PUT: actualizar nota ──────────────────────────────
+router.put('/notas/:id', authAdmin, (req, res) => {
+    const { estudianteId, profesorid, materiaId, valor } = req.body;
 
-    nota.estudianteId = estudianteId;
-    nota.profesorId = profesorId;
-    nota.materia = materia;
-    nota.valor = valor;
+    // Validación: campos obligatorios
+    if (!estudianteId || !profesorid || !materiaId || !valor) {
+        return res.status(400).json({ success: false, message: 'estudianteId, profesorid, materiaId y valor son obligatorios' });
+    }
 
-    res.json({ success: true, Headers: { apiKey, role }, data: nota });
+    // Validación: valor debe ser número entre 0 y 5
+    if (isNaN(valor) || valor <= 0 || valor > 5) {
+        return res.status(400).json({ success: false, message: 'valor debe ser un número entre 0.1 y 5' });
+    }
+
+    // Validación: existe la nota
+    db.get('SELECT NotaId FROM Notas WHERE NotaId = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (!row) return res.status(404).json({ success: false, message: 'Nota no encontrada' });
+
+        db.run(
+            'UPDATE Notas SET EstudianteId = ?, ProfesorId = ?, MateriaId = ?, Valor = ? WHERE NotaId = ?',
+            [estudianteId, profesorid, materiaId, valor, req.params.id],
+            function (err) {
+                if (err) return res.status(500).json({ success: false, message: err.message });
+                res.json({ success: true, data: { id: req.params.id, estudianteId, profesorid, materiaId, valor } });
+            }
+        );
+    });
 });
 
-// DELETE: eliminar nota
-router.delete('/notas/:id', (req, res) => {
-    const apiKey = req.headers['password'];
-    const role = req.headers['x-user-role'];
-    if (!apiKey) {
-        return res.status(401).json({
-            success: false,
-            message: 'API key es requerida'
+// ── DELETE: eliminar nota ─────────────────────────────
+router.delete('/notas/:id', authAdmin, (req, res) => {
+
+    // Validación: existe la nota
+    db.get('SELECT NotaId FROM Notas WHERE NotaId = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (!row) return res.status(404).json({ success: false, message: 'Nota no encontrada' });
+
+        db.run('DELETE FROM Notas WHERE NotaId = ?', [req.params.id], function (err) {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.status(200).json({ success: true, data: 'La nota se ha eliminado' });
         });
-    }
-    if (apiKey !== '6789') {
-        return res.status(403).json({
-            success: false,
-            message: 'Error la password no es correcta'
-        });
-    }
-    if (role !== 'admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'No tienes permisos para realizar esta acción'
-        });
-    }
-    const notaIndex = notas.findIndex(n => n.id === parseInt(req.params.id));
-    if (notaIndex === -1) {
-        return res.status(404).json({
-            success: false,
-            message: 'Nota no encontrada'
-        });
-    }
-    notas.splice(notaIndex, 1);
-    res.status(201).json({
-        success: true,
-        Headers: { apiKey, role },
-        data: "La nota se ha eliminado"
     });
 });
 
