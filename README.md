@@ -299,3 +299,6 @@ Elimina nota.
 - No hay base de datos.
 - No hay autenticación real (solo headers).
 - Proyecto académico.
+
+# Diagrama entidad relación
+<img width="1241" height="546" alt="Colegio" src="https://github.com/user-attachments/assets/cb6c4a3c-b5d0-40ae-9944-6c5d57521799" />
