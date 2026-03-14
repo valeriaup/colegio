@@ -2,12 +2,10 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
-// ── MIDDLEWARES DE AUTENTICACIÓN ──────────────────────
-
 function authGet(req, res, next) {
     const apiKey = req.headers['password'];
     if (!apiKey) return res.status(401).json({ success: false, message: 'API key es requerida' });
-    if (apiKey !== '12345') return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
+    if (apiKey !== process.env.API_PASSWORD_GET) return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
     next();
 }
 
@@ -15,22 +13,21 @@ function authAdmin(req, res, next) {
     const apiKey = req.headers['password'];
     const role = req.headers['x-user-role'];
     if (!apiKey) return res.status(401).json({ success: false, message: 'API key es requerida' });
-    if (apiKey !== '6789') return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
+    if (apiKey !== process.env.API_PASSWORD_ADMIN) return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
     if (role !== 'admin') return res.status(403).json({ success: false, message: 'No tienes permisos para realizar esta acción' });
     next();
 }
 
-// ── GET: todos los estudiantes ────────────────────────
 router.get('/estudiantes', authGet, (req, res) => {
     const { nombre, apellido, genero, email } = req.query;
 
     let query = 'SELECT * FROM Estudiantes WHERE 1=1';
     const params = [];
 
-    if (nombre)   { query += ' AND Nombre LIKE ?';   params.push(`%${nombre}%`); }
-    if (apellido) { query += ' AND Apellido LIKE ?';  params.push(`%${apellido}%`); }
-    if (genero)   { query += ' AND Genero LIKE ?';    params.push(`%${genero}%`); }
-    if (email)    { query += ' AND Email LIKE ?';     params.push(`%${email}%`); }
+    if (nombre) { query += ' AND Nombre LIKE ?'; params.push(`%${nombre}%`); }
+    if (apellido) { query += ' AND Apellido LIKE ?'; params.push(`%${apellido}%`); }
+    if (genero) { query += ' AND Genero LIKE ?'; params.push(`%${genero}%`); }
+    if (email) { query += ' AND Email LIKE ?'; params.push(`%${email}%`); }
 
     db.all(query, params, (err, rows) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -38,7 +35,6 @@ router.get('/estudiantes', authGet, (req, res) => {
     });
 });
 
-// ── GET: estudiante por ID ────────────────────────────
 router.get('/estudiantes/:id', authGet, (req, res) => {
     db.get('SELECT * FROM Estudiantes WHERE EstudianteId = ?', [req.params.id], (err, row) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -47,16 +43,13 @@ router.get('/estudiantes/:id', authGet, (req, res) => {
     });
 });
 
-// ── POST: crear estudiante ────────────────────────────
 router.post('/estudiantes', authAdmin, (req, res) => {
     const { nombre, apellido, genero, email } = req.body;
 
-    // Validación: campos obligatorios
     if (!nombre || !apellido || !genero || !email) {
         return res.status(400).json({ success: false, message: 'nombre, apellido, genero y email son obligatorios' });
     }
 
-    // Validación: unicidad del email
     db.get('SELECT EstudianteId FROM Estudiantes WHERE Email = ?', [email], (err, row) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         if (row) return res.status(400).json({ success: false, message: 'El email ya está registrado' });
@@ -72,16 +65,13 @@ router.post('/estudiantes', authAdmin, (req, res) => {
     });
 });
 
-// ── PUT: actualizar estudiante ────────────────────────
 router.put('/estudiantes/:id', authAdmin, (req, res) => {
     const { nombre, apellido, genero, email } = req.body;
 
-    // Validación: campos obligatorios
     if (!nombre || !apellido || !genero || !email) {
         return res.status(400).json({ success: false, message: 'nombre, apellido, genero y email son obligatorios' });
     }
 
-    // Validación: existe el estudiante
     db.get('SELECT EstudianteId FROM Estudiantes WHERE EstudianteId = ?', [req.params.id], (err, row) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         if (!row) return res.status(404).json({ success: false, message: 'Estudiante no encontrado' });
@@ -97,10 +87,7 @@ router.put('/estudiantes/:id', authAdmin, (req, res) => {
     });
 });
 
-// ── DELETE: eliminar estudiante ───────────────────────
 router.delete('/estudiantes/:id', authAdmin, (req, res) => {
-
-    // Validación: existe el estudiante
     db.get('SELECT EstudianteId FROM Estudiantes WHERE EstudianteId = ?', [req.params.id], (err, row) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         if (!row) return res.status(404).json({ success: false, message: 'Estudiante no encontrado' });
