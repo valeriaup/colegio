@@ -38,3 +38,12 @@ temp/
 database.db
 *.sqlite
 *.sqlite3
+
+# Dependencias
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+database.db
+.env
