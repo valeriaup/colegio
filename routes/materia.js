@@ -2,12 +2,10 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
-// ── MIDDLEWARES DE AUTENTICACIÓN ──────────────────────
-
 function authGet(req, res, next) {
     const apiKey = req.headers['password'];
     if (!apiKey) return res.status(401).json({ success: false, message: 'API key es requerida' });
-    if (apiKey !== '12345') return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
+    if (apiKey !== process.env.API_PASSWORD_GET) return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
     next();
 }
 
@@ -15,23 +13,21 @@ function authAdmin(req, res, next) {
     const apiKey = req.headers['password'];
     const role = req.headers['x-user-role'];
     if (!apiKey) return res.status(401).json({ success: false, message: 'API key es requerida' });
-    if (apiKey !== '6789') return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
+    if (apiKey !== process.env.API_PASSWORD_ADMIN) return res.status(403).json({ success: false, message: 'Error la password no es correcta' });
     if (role !== 'admin') return res.status(403).json({ success: false, message: 'No tienes permisos para realizar esta acción' });
     next();
 }
 
-// ── GET: todas las materias ───────────────────────────
 router.get('/materias', authGet, (req, res) => {
     const { nombre, descripcion, activa } = req.query;
 
     let query = 'SELECT * FROM Materias WHERE 1=1';
     const params = [];
 
-    if (nombre)      { query += ' AND Nombre LIKE ?';      params.push(`%${nombre}%`); }
+    if (nombre) { query += ' AND Nombre LIKE ?'; params.push(`%${nombre}%`); }
     if (descripcion) { query += ' AND Descripcion LIKE ?'; params.push(`%${descripcion}%`); }
     if (activa !== undefined && activa !== '') {
         query += ' AND Activa = ?';
-        // acepta tanto "true/false" como "1/0"
         params.push(activa === 'true' || activa === '1' ? 1 : 0);
     }
 
@@ -41,7 +37,6 @@ router.get('/materias', authGet, (req, res) => {
     });
 });
 
-// ── GET: materia por ID ───────────────────────────────
 router.get('/materias/:id', authGet, (req, res) => {
     db.get('SELECT * FROM Materias WHERE MateriaId = ?', [req.params.id], (err, row) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -50,16 +45,13 @@ router.get('/materias/:id', authGet, (req, res) => {
     });
 });
 
-// ── POST: crear materia ───────────────────────────────
 router.post('/materias', authAdmin, (req, res) => {
     const { nombre, descripcion, activa } = req.body;
 
-    // Validación: campos obligatorios
     if (!nombre || activa === undefined) {
         return res.status(400).json({ success: false, message: 'nombre y activa son obligatorios' });
     }
 
-    // Validación: activa debe ser booleano o 0/1
     const activaVal = activa === true || activa === 1 || activa === 'true' || activa === '1' ? 1 : 0;
 
     db.run(
@@ -72,16 +64,13 @@ router.post('/materias', authAdmin, (req, res) => {
     );
 });
 
-// ── PUT: actualizar materia ───────────────────────────
 router.put('/materias/:id', authAdmin, (req, res) => {
     const { nombre, descripcion, activa } = req.body;
 
-    // Validación: campos obligatorios
     if (!nombre || activa === undefined) {
         return res.status(400).json({ success: false, message: 'nombre y activa son obligatorios' });
     }
 
-    // Validación: existe la materia
     db.get('SELECT MateriaId FROM Materias WHERE MateriaId = ?', [req.params.id], (err, row) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         if (!row) return res.status(404).json({ success: false, message: 'Materia no encontrada' });
@@ -99,10 +88,7 @@ router.put('/materias/:id', authAdmin, (req, res) => {
     });
 });
 
-// ── DELETE: eliminar materia ──────────────────────────
 router.delete('/materias/:id', authAdmin, (req, res) => {
-
-    // Validación: existe la materia
     db.get('SELECT MateriaId FROM Materias WHERE MateriaId = ?', [req.params.id], (err, row) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         if (!row) return res.status(404).json({ success: false, message: 'Materia no encontrada' });
